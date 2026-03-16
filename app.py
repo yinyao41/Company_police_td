@@ -7,16 +7,16 @@ from openai import OpenAI
 import os
 
 # =============================================================================
-# 配置区（你的 GitHub 信息）
+# 配置区
 # =============================================================================
 GITHUB_USERNAME = "yinyao41"
 GITHUB_REPO = "Company_policy"
 BRANCH = "master"
 
-# 只读取这一个文件（其他两个文件已移除）
+# 只读取这一个文件
 POLICY_FILE = "data/同登制度汇编202602.docx"
 
-# 系统提示词（已改为单文件描述）
+# 系统提示词
 SYSTEM_PROMPT = """你是一位专业、严谨的企业制度咨询助手。
 你的全部知识**仅来源于**下方提供的《同登制度汇编202602.docx》这份文件，不得使用任何外部知识或编造内容。
 回答时请尽量引用原文条款、章节编号或具体表述，保持客观中立。
@@ -24,7 +24,7 @@ SYSTEM_PROMPT = """你是一位专业、严谨的企业制度咨询助手。
 “抱歉，本助手仅回答与公司制度相关的问题，请提出制度相关咨询。”"""
 
 # =============================================================================
-# 阿里通义千问客户端
+# 阿里通义千问客户端（关键修复：改用 qwen-plus）
 # =============================================================================
 DASHSCOPE_API_KEY = st.secrets.get("DASHSCOPE_API_KEY", os.getenv("DASHSCOPE_API_KEY"))
 if not DASHSCOPE_API_KEY:
@@ -36,10 +36,10 @@ client = OpenAI(
     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
 )
 
-MODEL_NAME = "qwen-max"
+MODEL_NAME = "qwen-plus"   # ← 关键修复：改用更大上下文模型
 
 # =============================================================================
-# 只读取同登制度汇编202602.docx（完整不截断）
+# 只读取同登制度汇编202602.docx（安全截断 + 提示）
 # =============================================================================
 @st.cache_data(show_spinner="正在从 GitHub 下载并解析《同登制度汇编202602.docx》...")
 def load_policy():
@@ -55,23 +55,34 @@ def load_policy():
         if not text:
             st.error("文件内容为空！")
             st.stop()
-            
+
+        # 安全截断（防止超限）
+        MAX_CHARS = 22000
+        truncated = False
+        if len(text) > MAX_CHARS:
+            text = text[:MAX_CHARS] + "\n\n【注意：制度全文已自动截断以适配模型限制。若问题涉及未显示部分，请具体说明条款名称】"
+            truncated = True
+
         display_name = "同登制度汇编202602"
-        return f"【{display_name}】\n{text}\n{'─' * 80}\n"
+        return f"【{display_name}】\n{text}\n{'─' * 80}\n", truncated
         
     except Exception as e:
         st.error(f"读取文件失败：{str(e)}")
         st.stop()
 
 
-# 执行加载（只加载一个文件，完整不截断）
-POLICIES_TEXT = load_policy()
+# 执行加载
+POLICIES_TEXT, WAS_TRUNCATED = load_policy()
 
 # =============================================================================
-# Streamlit 界面（只剩主标题 + 聊天框）
+# Streamlit 界面
 # =============================================================================
 st.set_page_config(page_title="企业制度问答助手", layout="wide")
 st.title("🏢 企业制度智能问答助手")
+
+# 如果被截断，给用户提示（不影响使用）
+if WAS_TRUNCATED:
+    st.warning("⚠️ 制度文件内容较长，已自动截断至安全长度。若问题涉及未显示部分，请具体说明条款名称。")
 
 # 初始化聊天历史
 if "messages" not in st.session_state:
